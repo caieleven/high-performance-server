@@ -1,7 +1,8 @@
 /**
  * @brief 半同步/半异步并发模式的进程池。为了避免父子进程之间传递文件描述符，将新连接放到子进程中。因此，一个客户连接上的所有任务始终由一个子进程处理
 */
-
+#ifndef PROCESSPOOL_H
+#define PROCESSPOOL_H
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -132,16 +133,20 @@ processpool<T>::processpool(int listenfd, int process_number):m_listenfd(listenf
 
     // 创建process_number个子进程，并建立他们和父进程之间的管道
     for(int i = 0; i < process_number; i++){
-        int ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_sub_process[i].m_pid);
+        int ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_sub_process[i].m_pipefd);
         assert(ret == 0);
         m_sub_process[i].m_pid = fork();
+        // 这里尤其注意，不然很可能子进程也会执行fork
+        // 主进程
         if(m_sub_process[i].m_pid > 0){
             close(m_sub_process[i].m_pipefd[1]);
             continue;
         }
+        // 子进程
         else{
             close(m_sub_process[i].m_pipefd[0]);
             m_idx = i;
+            // 注意这是break
             break;
         }
     }
@@ -160,6 +165,7 @@ void processpool<T>::setup_sig_pipe(){
     addfd(m_epollfd, sig_pipefd[0]);
 
     // 设置信号处理函数
+    // 发送到sig_pipefd[1]
     addsig(SIGCHLD, sig_handler);
     addsig(SIGTERM, sig_handler);
     addsig(SIGINT, sig_handler);
@@ -373,3 +379,6 @@ void processpool<T>::run_parent(){
 
 
 
+
+
+#endif
